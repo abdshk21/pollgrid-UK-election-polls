@@ -62,6 +62,11 @@ Rules:
   especially). Normalise at ingest, keep the raw value alongside.
 - Weighted and unweighted bases are both published and mean different things.
   Store both.
+- The frame (`ingest/frame.py`) currently covers England & Wales only (575 of
+  650 UK constituencies), via ONS/Nomis. Scotland (NRS, 2022 census) and
+  Northern Ireland (NISRA) publish census data through separate systems and
+  need their own ingest paths. National seat totals are invalid until those
+  are added.
 
 ## Conventions
 
@@ -81,6 +86,7 @@ uv run pytest              # tests
 uv run ruff check --fix    # lint
 uv run ruff format         # format
 uv run python -m pollgrid.ingest.polls   # refresh poll data
+uv run python -m pollgrid.ingest.frame    # rebuild the poststratification frame
 ```
 
 ## Working with me on this

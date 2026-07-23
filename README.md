@@ -31,4 +31,5 @@ uv run pytest              # tests
 uv run ruff check --fix    # lint
 uv run ruff format         # format
 uv run python -m pollgrid.ingest.polls   # refresh poll data
+uv run python -m pollgrid.ingest.frame    # rebuild the poststratification frame
 ```
