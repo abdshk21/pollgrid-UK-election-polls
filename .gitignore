@@ -9,5 +9,7 @@ wheels/
 # Virtual environments
 .venv
 
-# Poll data and derived artifacts are never committed
-data/
+# Poll data and derived artifacts are never committed, except crosstabs.yaml
+# — it's hand-curated source data, not a fetched artifact (see CLAUDE.md).
+data/*
+!data/crosstabs.yaml

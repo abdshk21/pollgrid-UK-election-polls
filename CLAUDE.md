@@ -51,7 +51,8 @@ Rules:
 - **No partisan adjustment.** Calibration happens only against real election
   results. Never against expectation, vibe, or a prior about who "should" win.
 - **Data is never committed.** `data/` is gitignored. Commit the fetcher, not
-  the fetch.
+  the fetch. Exception: `data/crosstabs.yaml` — it's hand-curated from
+  published tables, not fetched, so it's tracked like source code.
 
 ## Known landmines
 
@@ -67,6 +68,13 @@ Rules:
   Northern Ireland (NISRA) publish census data through separate systems and
   need their own ingest paths. National seat totals are invalid until those
   are added.
+- britpol's `pollbase` dataset (`ingest/polls.py`) is a HISTORICAL dataset,
+  not a live spine — it stops in December 2021 and only ever reports
+  Con/Lab/LD shares, so it predates Reform UK's rise and the 2024 election
+  entirely. Every poll parsed from it carries Reform and Green as
+  `absent_parties`. Its job is providing a large, clean sample for
+  validating `house_effects` against — not feeding current toplines. Current
+  support numbers come from the hand-curated `data/crosstabs.yaml`.
 
 ## Conventions
 

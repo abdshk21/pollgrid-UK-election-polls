@@ -22,8 +22,20 @@ from pollgrid.engine import (
 from pollgrid.engine.bridge import frame_to_cells
 from pollgrid.engine.placeholder_support import PLACEHOLDER_SUPPORT
 from pollgrid.ingest.frame import VOTING_BANDS
+from pollgrid.ingest.polls import (
+    CROSSTABS_PATH,
+    CrosstabRow,
+    crosstabs_to_support_table,
+    load_crosstabs,
+)
 
 FRAME_VOTING_BANDS_PATH = Path("data/frame_voting_bands.parquet")
+
+# Shown in the pollster selector whenever data/crosstabs.yaml has no real
+# rows for a pollster yet — falls back to the hand-typed placeholder table.
+# TODO(placeholder_support.py): once data/crosstabs.yaml has real pollster
+# rows, this fallback and the PLACEHOLDER_SUPPORT import can be deleted.
+PLACEHOLDER_POLLSTER = "Placeholder — hand-typed, not a real poll"
 
 # Estimates from post-election survey work (e.g. British Election Study),
 # not an official figure — the UK does not publish turnout by age.
@@ -57,23 +69,42 @@ def load_voting_bands_frame() -> pl.DataFrame:
 
 
 @st.cache_data
-def load_cells_frame() -> pl.DataFrame:
-    """Build and validate the engine's cell table once per session.
+def load_real_crosstabs() -> list[CrosstabRow]:
+    if not CROSSTABS_PATH.exists():
+        return []
+    return load_crosstabs(CROSSTABS_PATH)
+
+
+@st.cache_data
+def available_pollsters() -> list[str]:
+    real_pollsters = sorted({row.pollster for row in load_real_crosstabs()})
+    return [PLACEHOLDER_POLLSTER, *real_pollsters]
+
+
+@st.cache_data
+def load_cells_frame_for_pollster(pollster: str) -> pl.DataFrame:
+    """Build and validate the engine's cell table for one pollster, once per
+    session per pollster.
 
     Everything downstream of this (apply_scenario_weights,
     national_vote_share) is cheap enough to re-run on every slider drag;
     this — frame_to_cells over ~2,300 constituency/age_band rows times six
-    parties, plus the cells_to_frame sum-to-one check — is not, so it's
-    cached and must not re-run on slider movement.
+    parties, plus the cells_to_frame sum-to-one check — is not. Caching is
+    keyed on the pollster string (cheap to hash), so switching pollster pays
+    this cost once per pollster and slider drags never do.
     """
+    if pollster == PLACEHOLDER_POLLSTER:
+        support_table = PLACEHOLDER_SUPPORT
+    else:
+        support_table = crosstabs_to_support_table(load_real_crosstabs(), pollster)
     frame = load_voting_bands_frame()
-    cells = frame_to_cells(frame, PLACEHOLDER_SUPPORT)
+    cells = frame_to_cells(frame, support_table)
     return cells_to_frame(cells)
 
 
 @st.cache_data
-def compute_baseline_toplines() -> list[Topline]:
-    cells_frame = load_cells_frame()
+def compute_baseline_toplines(pollster: str) -> list[Topline]:
+    cells_frame = load_cells_frame_for_pollster(pollster)
     weighted = apply_scenario_weights(cells_frame, Scenario(turnout=BASELINE_TURNOUT))
     return national_vote_share(weighted)
 
@@ -155,15 +186,31 @@ def main() -> None:
         )
         st.stop()
 
+    st.sidebar.header("Pollster")
+    selected_pollster = st.sidebar.selectbox("Crosstab source", available_pollsters())
+    if selected_pollster == PLACEHOLDER_POLLSTER:
+        support_caveat = (
+            "- **Support is a placeholder:** vote-share numbers come from a single "
+            "hand-typed crosstab, not a fitted model (see `engine/placeholder_support.py`) "
+            "or any real pollster. Once `data/crosstabs.yaml` has real rows, pick a "
+            "pollster above instead — switching pollster is how you see house effects "
+            "(each pollster's own distance from the polling average) made tangible.\n"
+        )
+    else:
+        support_caveat = (
+            f"- **Support is one pollster's crosstab:** these numbers are {selected_pollster}'s "
+            "own published age crosstab (hand-typed from their table, not a fitted model). "
+            "Switching pollster changes the toplines — that's house effect, not new "
+            "information; it doesn't tell you which pollster is closer to the truth.\n"
+        )
     st.warning(
         "**Read this before the numbers below.**\n"
         f"- **Coverage:** {COVERAGE_CONSTITUENCIES} of {COVERAGE_TOTAL} UK constituencies "
         "(England & Wales only). Scotland and Northern Ireland are not yet ingested — "
         "this is not a UK-wide figure.\n"
-        "- **Support is a placeholder:** vote-share numbers come from a single "
-        "hand-typed crosstab, not a fitted model (see `engine/placeholder_support.py`). "
-        "Every constituency currently shares the same support profile — there is no "
-        "geographic variation yet.\n"
+        f"{support_caveat}"
+        "- **Every constituency shares one national support profile:** there is no "
+        "genuine geographic variation yet, regardless of pollster.\n"
         "- **Uncertainty is understated:** the error bars are 95% confidence intervals "
         "from sampling error only. They do not capture house effects or model "
         "uncertainty, so true uncertainty is wider than shown."
@@ -189,10 +236,10 @@ def main() -> None:
             / 100
         )
 
-    cells_frame = load_cells_frame()
+    cells_frame = load_cells_frame_for_pollster(selected_pollster)
     weighted = apply_scenario_weights(cells_frame, Scenario(turnout=turnout))
     toplines = national_vote_share(weighted)
-    baseline_toplines = compute_baseline_toplines()
+    baseline_toplines = compute_baseline_toplines(selected_pollster)
     deltas = topline_deltas(toplines, baseline_toplines)
 
     col1, col2 = st.columns(2)

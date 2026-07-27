@@ -9,6 +9,8 @@ dependencies = [
     "matplotlib>=3.11.1",
     "polars>=1.43.0",
     "pydantic>=2.13.4",
+    "pyyaml>=6.0.3",
+    "rdata>=1.1.0",
     "streamlit>=1.60.0",
 ]
 

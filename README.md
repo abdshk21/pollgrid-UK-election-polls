@@ -30,6 +30,6 @@ uv sync
 uv run pytest              # tests
 uv run ruff check --fix    # lint
 uv run ruff format         # format
-uv run python -m pollgrid.ingest.polls   # refresh poll data
+uv run python -m pollgrid.ingest.polls   # refresh britpol's historical poll data (validates house_effects; not live toplines)
 uv run python -m pollgrid.ingest.frame    # rebuild the poststratification frame
 ```

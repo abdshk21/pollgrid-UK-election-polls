@@ -1,0 +1,59 @@
+# data/crosstabs.yaml — hand-curated CURRENT vote-intention crosstabs by age.
+#
+# This file is typed by hand from published tables. There is no PDF parser
+# and none is planned (see CLAUDE.md) — read the numbers off the page
+# yourself. It is the one place under data/ that is committed rather than
+# gitignored, because it's source data you wrote, not something fetched
+# (see CLAUDE.md's non-negotiables and .gitignore).
+#
+# Loaded by pollgrid.ingest.polls.load_crosstabs(), which validates every
+# row and raises if:
+#   - age_band is anything other than the four voting bands from
+#     ingest/frame.py's collapse_to_voting_bands: 18-24, 25-49, 50-64, 65+.
+#   - a (pollster, fieldwork_start, fieldwork_end, age_band) group's support
+#     values don't sum to 1.0 (within 1e-6) once an "Other" row is included
+#     for whatever the table's residual is.
+#
+# One row per (pollster, age_band, party) — i.e. a single published table
+# with 4 age columns x 6 party rows becomes 24 rows here.
+#
+# Field            Where it comes from in a typical published crosstab table
+# ---------------  -----------------------------------------------------------
+# pollster          The table's masthead / commissioning line, e.g.
+#                    "YouGov / The Times" -> just the pollster, not the
+#                    client: "YouGov".
+# fieldwork_start,  Usually a footnote near the table, e.g. "Fieldwork:
+# fieldwork_end     18th-20th July 2026" -> ISO dates 2026-07-18 and
+#                    2026-07-20. Both are inclusive.
+# age_band          The crosstab's column header, remapped to one of the
+#                    four voting bands. A published "18-24" column maps
+#                    directly; if a pollster's own bands don't line up with
+#                    ours (e.g. a "35-44" column), don't force a bad fit —
+#                    leave that band out rather than guess.
+# party             The crosstab's row label: "Con", "Lab", "Lib Dem" ->
+#                    "LD", "Reform UK" -> "Reform", "Green" -> "Green".
+#                    Anything not separately named in the table -> "Other",
+#                    using whatever residual the table itself reports
+#                    (don't invent one — see engine/placeholder_support.py
+#                    for why silently rescaling the named parties is wrong).
+# support            The cell value AS A FRACTION, not a percentage: a
+#                    published "28%" is 0.28, not 28.
+# subsample_base     The base reported FOR THAT AGE COLUMN specifically —
+#                    not the poll's overall sample size. Usually in the same
+#                    footnote as the fieldwork dates, e.g. "Age 18-24
+#                    (unweighted): n=143". Prefer the unweighted base if the
+#                    table gives a choice — it's what the standard-error
+#                    arithmetic in crosstabs_to_support_table assumes.
+#
+# Worked example (commented out below — copy this shape for a real row and
+# delete the leading "# "). One row alone will never pass validation: every
+# party in a (pollster, fieldwork window, age_band) group must be present
+# and sum to 1.0 including Other before load_crosstabs() will accept it.
+#
+# - pollster: "YouGov"
+#   fieldwork_start: 2026-07-18
+#   fieldwork_end: 2026-07-20
+#   age_band: "18-24"
+#   party: "Lab"
+#   support: 0.28
+#   subsample_base: 143
