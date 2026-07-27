@@ -125,3 +125,16 @@ def national_vote_share(weighted_cells: pl.DataFrame) -> list[Topline]:
             )
         )
     return sorted(toplines, key=lambda t: t.party)
+
+
+def topline_deltas(current: list[Topline], baseline: list[Topline]) -> dict[str, float]:
+    """Per-party change in vote share, current minus baseline (share units, not pp).
+
+    Every party in `current` must appear in `baseline` — comparing against a
+    baseline that's silently missing a party would be a silent imputation.
+    """
+    baseline_by_party = {t.party: t.share for t in baseline}
+    missing = [t.party for t in current if t.party not in baseline_by_party]
+    if missing:
+        raise ValueError(f"baseline is missing parties present in current: {sorted(missing)}")
+    return {t.party: t.share - baseline_by_party[t.party] for t in current}

@@ -6,9 +6,11 @@ from pollgrid.engine import (
     Z_95,
     Cell,
     Scenario,
+    Topline,
     apply_scenario_weights,
     cells_to_frame,
     national_vote_share,
+    topline_deltas,
 )
 
 # Two cells, two parties, chosen so every downstream number is hand-checkable:
@@ -155,3 +157,16 @@ def test_confidence_interval_clips_to_unit_interval_for_extreme_cell():
     assert topline.se == pytest.approx(0.3)
     assert topline.ci_high == 1.0
     assert topline.ci_low == pytest.approx(0.95 - Z_95 * 0.3)
+
+
+def test_topline_deltas_computes_current_minus_baseline():
+    current = [Topline(party="Lab", share=0.45, se=0.01, ci_low=0.43, ci_high=0.47)]
+    baseline = [Topline(party="Lab", share=0.40, se=0.01, ci_low=0.38, ci_high=0.42)]
+    assert topline_deltas(current, baseline) == pytest.approx({"Lab": 0.05})
+
+
+def test_topline_deltas_rejects_party_missing_from_baseline():
+    current = [Topline(party="Lab", share=0.45, se=0.01, ci_low=0.43, ci_high=0.47)]
+    baseline: list[Topline] = []
+    with pytest.raises(ValueError, match="Lab"):
+        topline_deltas(current, baseline)
