@@ -3,6 +3,7 @@ import math
 import pytest
 
 from pollgrid.engine import (
+    Z_95,
     Cell,
     Scenario,
     apply_scenario_weights,
@@ -56,7 +57,7 @@ CELLS = [
         se=0.02,
     ),
 ]
-SCENARIO = Scenario(turnout={"A": 0.5, "B": 0.25})
+SCENARIO = Scenario(turnout={"18-24": 0.5, "65+": 0.25})
 
 
 def test_apply_scenario_weights_computes_population_times_turnout():
@@ -66,8 +67,8 @@ def test_apply_scenario_weights_computes_population_times_turnout():
 
 
 def test_apply_scenario_weights_rejects_cell_missing_from_scenario():
-    scenario = Scenario(turnout={"A": 0.5})  # no rate for cell B
-    with pytest.raises(ValueError, match="B"):
+    scenario = Scenario(turnout={"18-24": 0.5})  # no rate for age band "65+" (cell B)
+    with pytest.raises(ValueError, match="65"):
         apply_scenario_weights(cells_to_frame(CELLS), scenario)
 
 
@@ -81,18 +82,37 @@ def test_national_vote_share_matches_hand_computed_values():
     assert toplines["Con"].share == pytest.approx(0.55)
     assert toplines["Lab"].se == pytest.approx(expected_se)
     assert toplines["Con"].se == pytest.approx(expected_se)
-    assert toplines["Lab"].ci_low == pytest.approx(0.45 - 1.959963984540054 * expected_se)
-    assert toplines["Lab"].ci_high == pytest.approx(0.45 + 1.959963984540054 * expected_se)
+    assert toplines["Lab"].ci_low == pytest.approx(0.45 - Z_95 * expected_se)
+    assert toplines["Lab"].ci_high == pytest.approx(0.45 + Z_95 * expected_se)
 
 
 def test_shares_sum_to_one():
-    weighted = apply_scenario_weights(cells_to_frame(CELLS), SCENARIO)
-    toplines = national_vote_share(weighted)
-    assert sum(t.share for t in toplines) == pytest.approx(1.0)
+    non_summing_cells = [
+        Cell(
+            cell_id="A",
+            age_band="18-24",
+            region="Scotland",
+            population=1000,
+            party="Lab",
+            support=0.6,
+            se=0.05,
+        ),
+        Cell(
+            cell_id="A",
+            age_band="18-24",
+            region="Scotland",
+            population=1000,
+            party="Con",
+            support=0.5,  # 0.6 + 0.5 = 1.1, does not sum to 1.0
+            se=0.05,
+        ),
+    ]
+    with pytest.raises(ValueError, match="A"):
+        cells_to_frame(non_summing_cells)
 
 
 def test_national_vote_share_rejects_zero_total_weight():
-    scenario = Scenario(turnout={"A": 0.0, "B": 0.0})
+    scenario = Scenario(turnout={"18-24": 0.0, "65+": 0.0})
     weighted = apply_scenario_weights(cells_to_frame(CELLS), scenario)
     with pytest.raises(ValueError, match="zero"):
         national_vote_share(weighted)
@@ -100,7 +120,7 @@ def test_national_vote_share_rejects_zero_total_weight():
 
 def test_scenario_rejects_turnout_outside_unit_interval():
     with pytest.raises(ValueError):
-        Scenario(turnout={"A": 1.5})
+        Scenario(turnout={"18-24": 1.5})
 
 
 def test_confidence_interval_clips_to_unit_interval_for_extreme_cell():
@@ -113,15 +133,25 @@ def test_confidence_interval_clips_to_unit_interval_for_extreme_cell():
             party="X",
             support=0.95,
             se=0.3,  # implausibly large SE, standing in for a tiny effective sample
-        )
+        ),
+        Cell(
+            cell_id="C",
+            age_band="18-24",
+            region="Wales",
+            population=100,
+            party="Y",
+            support=0.05,
+            se=0.01,
+        ),
     ]
     weighted = apply_scenario_weights(
-        cells_to_frame(tiny_sample_cell), Scenario(turnout={"C": 1.0})
+        cells_to_frame(tiny_sample_cell), Scenario(turnout={"18-24": 1.0})
     )
-    [topline] = national_vote_share(weighted)
+    toplines = {t.party: t for t in national_vote_share(weighted)}
+    topline = toplines["X"]
 
     # weight = 100, variance = 100**2 * 0.3**2 = 900, se = sqrt(900)/100 = 0.3
     # ci_high = 0.95 + 1.96*0.3 = 1.538 -> clipped to 1.0
     assert topline.se == pytest.approx(0.3)
     assert topline.ci_high == 1.0
-    assert topline.ci_low == pytest.approx(0.95 - 1.959963984540054 * 0.3)
+    assert topline.ci_low == pytest.approx(0.95 - Z_95 * 0.3)

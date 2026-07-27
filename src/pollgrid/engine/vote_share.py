@@ -27,16 +27,16 @@ class Cell(BaseModel):
 
 
 class Scenario(BaseModel):
-    """A user-specified turnout rate per cell."""
+    """A user-specified turnout rate per age band."""
 
     turnout: dict[str, float]
 
     @field_validator("turnout")
     @classmethod
     def _rates_in_unit_interval(cls, turnout: dict[str, float]) -> dict[str, float]:
-        for cell_id, rate in turnout.items():
+        for age_band, rate in turnout.items():
             if not 0.0 <= rate <= 1.0:
-                raise ValueError(f"turnout rate for {cell_id!r} out of [0, 1]: {rate}")
+                raise ValueError(f"turnout rate for {age_band!r} out of [0, 1]: {rate}")
         return turnout
 
 
@@ -51,29 +51,44 @@ class Topline(BaseModel):
 
 
 def cells_to_frame(cells: list[Cell]) -> pl.DataFrame:
-    """Convert validated Cell rows into the polars table the functions below expect."""
-    return pl.DataFrame([c.model_dump() for c in cells], schema=CELL_SCHEMA)
+    """Convert validated Cell rows into the polars table the functions below expect.
+
+    Party support values within a single cell_id must sum to 1.0 (within
+    tolerance) — a cell where they don't is malformed input, not something to
+    silently normalise.
+    """
+    frame = pl.DataFrame([c.model_dump() for c in cells], schema=CELL_SCHEMA)
+
+    totals = frame.group_by("cell_id").agg(pl.col("support").sum().alias("total_support"))
+    bad = totals.filter((pl.col("total_support") - 1.0).abs() > 1e-6)
+    if bad.height:
+        bad_totals = dict(bad.select("cell_id", "total_support").iter_rows())
+        raise ValueError(f"cell support values do not sum to 1.0: {bad_totals}")
+
+    return frame
 
 
 def apply_scenario_weights(cells: pl.DataFrame, scenario: Scenario) -> pl.DataFrame:
     """Attach a `weight` column (population * turnout) to each cell row.
 
-    Every cell_id in `cells` must have a turnout rate in `scenario` — a cell
-    with no assumed turnout would be a silent imputation, which this codebase
-    never does.
+    Each cell's turnout rate is looked up by its age_band, so every cell
+    sharing an age_band gets that band's rate broadcast to it. Every age_band
+    present in `cells` must have a turnout rate in `scenario` — a cell with no
+    assumed turnout would be a silent imputation, which this codebase never
+    does.
     """
-    cell_ids = cells.get_column("cell_id").unique().to_list()
-    missing = [cid for cid in cell_ids if cid not in scenario.turnout]
+    age_bands = cells.get_column("age_band").unique().to_list()
+    missing = [band for band in age_bands if band not in scenario.turnout]
     if missing:
-        raise ValueError(f"scenario is missing turnout rates for cells: {sorted(missing)}")
+        raise ValueError(f"scenario is missing turnout rates for age bands: {sorted(missing)}")
 
     turnout_frame = pl.DataFrame(
         {
-            "cell_id": list(scenario.turnout.keys()),
+            "age_band": list(scenario.turnout.keys()),
             "turnout": list(scenario.turnout.values()),
         }
     )
-    return cells.join(turnout_frame, on="cell_id", how="left").with_columns(
+    return cells.join(turnout_frame, on="age_band", how="left").with_columns(
         (pl.col("population") * pl.col("turnout")).alias("weight")
     )
 

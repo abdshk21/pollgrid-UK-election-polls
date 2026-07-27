@@ -1,4 +1,5 @@
 from pollgrid.engine.vote_share import (
+    Z_95,
     Cell,
     Scenario,
     Topline,
@@ -8,6 +9,7 @@ from pollgrid.engine.vote_share import (
 )
 
 __all__ = [
+    "Z_95",
     "Cell",
     "Scenario",
     "Topline",

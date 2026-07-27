@@ -30,6 +30,47 @@ LOOKUP_URL = (
 )
 
 FRAME_ARTIFACT_PATH = Path("data/frame.parquet")
+VOTING_BANDS_ARTIFACT_PATH = Path("data/frame_voting_bands.parquet")
+
+# UK pollsters publish age crosstabs against these four bands, not the
+# eighteen five-year Census bands — this is the binding constraint on how
+# fine-grained the support table can be.
+VOTING_BANDS = ("18-24", "25-49", "50-64", "65+")
+
+# Census bands with no electors. Dropped entirely: never counted in a
+# vote-share denominator.
+UNDER_15_CENSUS_BANDS = frozenset(
+    {
+        "Aged 4 years and under",
+        "Aged 5 to 9 years",
+        "Aged 10 to 14 years",
+    }
+)
+
+# "Aged 15 to 19 years" straddles the voting-age line. This assumes ages are
+# uniformly distributed within the band, so 18 and 19 year-olds are 2 of its
+# 5 years — a stated modelling assumption, not a measured fact.
+FIFTEEN_TO_NINETEEN_ADULT_FRACTION = 2 / 5
+
+# Maps each Census band that contributes to a voting band -> (voting_band,
+# fraction of that band's population counted as electors).
+CENSUS_TO_VOTING_BAND: dict[str, tuple[str, float]] = {
+    "Aged 15 to 19 years": ("18-24", FIFTEEN_TO_NINETEEN_ADULT_FRACTION),
+    "Aged 20 to 24 years": ("18-24", 1.0),
+    "Aged 25 to 29 years": ("25-49", 1.0),
+    "Aged 30 to 34 years": ("25-49", 1.0),
+    "Aged 35 to 39 years": ("25-49", 1.0),
+    "Aged 40 to 44 years": ("25-49", 1.0),
+    "Aged 45 to 49 years": ("25-49", 1.0),
+    "Aged 50 to 54 years": ("50-64", 1.0),
+    "Aged 55 to 59 years": ("50-64", 1.0),
+    "Aged 60 to 64 years": ("50-64", 1.0),
+    "Aged 65 to 69 years": ("65+", 1.0),
+    "Aged 70 to 74 years": ("65+", 1.0),
+    "Aged 75 to 79 years": ("65+", 1.0),
+    "Aged 80 to 84 years": ("65+", 1.0),
+    "Aged 85 years and over": ("65+", 1.0),
+}
 
 
 class FrameCell(BaseModel):
@@ -128,6 +169,61 @@ def build_frame(lsoa_counts: pl.DataFrame, lookup: pl.DataFrame) -> pl.DataFrame
     )
 
 
+def collapse_to_voting_bands(frame: pl.DataFrame) -> pl.DataFrame:
+    """Collapse Census five-year age bands into the four voting bands
+    (18-24, 25-49, 50-64, 65+) that UK pollsters publish crosstabs against.
+
+    Bands under 15 are dropped entirely — children are not electors and must
+    not sit in the vote-share denominator. "Aged 15 to 19 years" is split
+    using FIFTEEN_TO_NINETEEN_ADULT_FRACTION (see its docstring for the
+    uniformity assumption this relies on); every other contributing band
+    counts in full.
+
+    Pure aggregation, no I/O: belongs to the batch half. Never call this on
+    `data/frame.parquet` in place — write its result to a separate artifact,
+    since the engine only ever reads the collapsed one and CLAUDE.md requires
+    raw census data to stay untouched.
+    """
+    present_bands = set(frame.get_column("age_band").unique().to_list())
+    expected_bands = set(CENSUS_TO_VOTING_BAND)
+    missing = expected_bands - present_bands
+    if missing:
+        raise ValueError(f"frame is missing expected census age bands: {sorted(missing)}")
+
+    raw_total = frame.get_column("population").sum()
+
+    collapsed = (
+        frame.filter(~pl.col("age_band").is_in(UNDER_15_CENSUS_BANDS))
+        .with_columns(
+            pl.col("age_band")
+            .replace_strict({band: target for band, (target, _) in CENSUS_TO_VOTING_BAND.items()})
+            .alias("voting_band"),
+            pl.col("age_band")
+            .replace_strict(
+                {band: fraction for band, (_, fraction) in CENSUS_TO_VOTING_BAND.items()},
+                return_dtype=pl.Float64,
+            )
+            .alias("elector_fraction"),
+        )
+        .with_columns((pl.col("population") * pl.col("elector_fraction")).alias("population"))
+        .group_by("pcon_code", "pcon_name", "voting_band")
+        .agg(pl.col("population").sum())
+        .rename({"voting_band": "age_band"})
+    )
+
+    collapsed_total = collapsed.get_column("population").sum()
+    assert collapsed_total < raw_total, (
+        f"collapsed population ({collapsed_total}) is not lower than raw ({raw_total}); "
+        "expected removing under-15 bands to reduce the total"
+    )
+
+    present_voting_bands = set(collapsed.get_column("age_band").unique().to_list())
+    empty_bands = set(VOTING_BANDS) - present_voting_bands
+    assert not empty_bands, f"voting bands ended up empty after collapsing: {sorted(empty_bands)}"
+
+    return collapsed
+
+
 def main() -> None:
     lsoa_counts = fetch_lsoa_age_counts()
     lookup = fetch_lsoa_to_constituency_lookup()
@@ -144,6 +240,10 @@ def main() -> None:
         f"England & Wales only ({n_constituencies} of 650 UK constituencies) — "
         "Scotland and Northern Ireland are not yet covered; national seat totals are invalid."
     )
+
+    voting_bands_frame = collapse_to_voting_bands(frame)
+    voting_bands_frame.write_parquet(VOTING_BANDS_ARTIFACT_PATH)
+    print(f"Wrote {voting_bands_frame.height} cells to {VOTING_BANDS_ARTIFACT_PATH}")
 
 
 if __name__ == "__main__":
