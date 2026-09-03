@@ -3,16 +3,13 @@
 A tool for reading UK opinion polls honestly. Users toggle turnout assumptions by
 demographic group and see how party vote share and seat counts change.
 
-The point of this project is to stop people treating polls as gospel. That means
-uncertainty is a first-class output, never a footnote.
+The point of this project is to stop people treating polls as gospel.
 
 ## Vocabulary
 
-Use these words precisely. Do not invent synonyms.
-
 - **topline** — the headline vote share a poll reports for each party.
 - **crosstab** — a poll's breakdown of support by one variable (age, education,
-  region). Polls publish crosstabs one variable at a time, never combined.
+  region). Polls publish crosstabs one variable at a time.
 - **cell** — one combination of demographic characteristics, e.g.
   `age=18-24, education=degree, region=Scotland`. Cells are the atomic unit
   of this codebase.
@@ -26,8 +23,6 @@ Use these words precisely. Do not invent synonyms.
 
 ## Architecture
 
-Two halves. Keep them separate.
-
 **Batch half** (`ingest/`, `model/`) — runs offline, may take twenty minutes.
 Ingests polls, extracts crosstabs, builds the frame, fits the multilevel
 regression. Writes a frozen artifact of cell-level estimates to disk.
@@ -37,8 +32,7 @@ milliseconds. Reads the frozen artifact, applies scenario weights, aggregates
 to constituencies and seats.
 
 Rules:
-- `engine/` never fits a model, never touches the network, never reads a PDF.
-- `engine/` contains pure functions: inputs in, numbers out, no I/O, no globals.
+- `engine/` contains pure functions, no globals.
 - If a change would make the live half slow, it belongs in the batch half.
 
 ## Non-negotiables
@@ -49,16 +43,16 @@ Rules:
 - **Never impute silently.** If a value is modelled rather than measured, the
   record says so in a field, not a comment.
 - **No partisan adjustment.** Calibration happens only against real election
-  results. Never against expectation, vibe, or a prior about who "should" win.
+  results.
 - **Data is never committed.** `data/` is gitignored. Commit the fetcher, not
-  the fetch. Exception: `data/crosstabs.yaml` — it's hand-curated from
+  the fetch. Exception: `data/crosstabs.yaml` : it's hand-curated from
   published tables, not fetched, so it's tracked like source code.
 
 ## Known landmines
 
 - UK constituency boundaries were redrawn for 2024. Only about 80 seats are
   unchanged from 2019, so "previous result in this seat" mostly does not exist
-  and must be handled explicitly, not assumed.
+  and must be handled explicitly.
 - Pollster crosstab categories are inconsistent between firms (age bands
   especially). Normalise at ingest, keep the raw value alongside.
 - Weighted and unweighted bases are both published and mean different things.
@@ -79,13 +73,12 @@ Rules:
 ## Conventions
 
 - Python 3.12+, managed with `uv`. Never call `pip` directly.
-- `polars`, not `pandas`.
+- Used `polars`, not `pandas`.
 - `pydantic` models for every data structure that crosses a module boundary.
 - Type hints on all public functions.
-- `ruff` for lint and format. No other formatter.
+- `ruff` for lint and format.
 - Tests: `pytest`. Test the arithmetic in `engine/` exhaustively — it has
-  hand-checkable right answers. Do not write assertion-heavy tests for model
-  output; test its shape and invariants instead.
+  hand-checkable right answers. 
 
 ## Commands
 
@@ -96,12 +89,3 @@ uv run ruff format         # format
 uv run python -m pollgrid.ingest.polls   # refresh poll data
 uv run python -m pollgrid.ingest.frame    # rebuild the poststratification frame
 ```
-
-## Working with me on this
-
-- Propose a plan before multi-file changes. I want to read it first.
-- One concern per commit. No omnibus commits.
-- Do not add dependencies without saying why the stdlib is insufficient.
-- Do not scaffold a web frontend, Docker setup, or CI pipeline unless asked.
-- If a statistical shortcut would make a number look more confident than the
-  data supports, say so instead of taking it.
