@@ -7,8 +7,6 @@ Uncertainty is a first-class output, never a footnote.
 
 ## Architecture
 
-Two halves, kept separate:
-
 - **Batch half** (`ingest/`, `model/`) — runs offline. Ingests polls, extracts
   crosstabs, builds the poststratification frame, fits the multilevel
   regression. Writes a frozen artifact of cell-level estimates to disk.
@@ -16,7 +14,6 @@ Two halves, kept separate:
   functions only: reads the frozen artifact, applies scenario weights,
   aggregates to constituencies and seats. No I/O, no model fitting.
 
-See `CLAUDE.md` for the full vocabulary, architecture rules, and non-negotiables.
 
 ## Setup
 
